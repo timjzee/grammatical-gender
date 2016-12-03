@@ -1,0 +1,8 @@
+groen
+blauw
+rood
+geel
+klein
+kort
+groot
+lang

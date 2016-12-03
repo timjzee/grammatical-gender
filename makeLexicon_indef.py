@@ -1,4 +1,4 @@
-import sys, string, pickle, random, os
+import sys, string, pickle, random, copy
 from numpy.random import choice
 
 #############
@@ -16,8 +16,6 @@ MAX_PARTICIPANT = int(sys.argv[3])
 MAX_GENERATION = int(sys.argv[4])
 
 INITIAL_LEXICON_SIZE = 300
-
-# In a later version the relatively arbitrary parameters below could be a function of GENERATION.
 
 if GENERATION <= 1220:
     UNKNOWN_INPUT_SIZE = 1
@@ -45,11 +43,11 @@ def makeDictionary(file_name):
         i2 = i[:-1]
         line=i2.split(',')
         key = line[0]
-        lab = line[-1]
         plur = line[1]
+        lab = line[-1]
         dictionary[key] = template[:]
-        dictionary[key][-1] = lab[:]
         dictionary[key][1] = plur[:]
+        dictionary[key][-1] = lab[:]
         # set number of instances in lexicon to zero
         dictionary[key][0] = 0
         freq = int(line[2])
@@ -105,17 +103,20 @@ def makeDictionary(file_name):
 def getDictionaries():
     """Sets up the dictionaries that are used to make the training files and check the classifications."""
     try:
-        g = open("dic_list.pck", "rb")
+        g = open("dic_list_indef.pck", "rb")
         dic_list = pickle.load(g)
+        h = open("master_dic_list.pck", "rb")
+        master_dic_list = pickle.load(h)
     except:
         dictionary1 = makeDictionary("first_1146_nouns_final.txt")
         dictionary2 = makeDictionary("remaining_nouns_final.txt")
         dic_list = [dictionary1, dictionary2]
-        g = open("dic_list.pck", "wb")
+        master_dic_list = copy.deepcopy(dic_list)
+        g = open("dic_list_indef.pck", "wb")
         pickle.dump(dic_list, g)
+        h = open("master_dic_list.pck", "wb")
+        pickle.dump(master_dic_list, h)
     g.close()
-    h = open("master_dic_list.pck", "rb")
-    master_dic_list = pickle.load(h)
     h.close()
     return dic_list, master_dic_list
 
@@ -137,53 +138,51 @@ def updateDictionary(list_of_words, add_or_subtract):
 
 def initializeLexicon():
     """Makes first lexicon from dictionary_1146 for leave_one_out classification."""
-    candidate_list = []
-    for word in master_dictionary_1146:
-        if master_dictionary_1146[word][0] == 0:
-            candidate_list.append(word)
-    initial_nouns = random.sample(candidate_list, INITIAL_LEXICON_SIZE)
-    f = open("lexicon.train", "w")
-    for noun in initial_nouns:
+    nouns = list(dictionary_1146.keys())
+    initial_nouns = random.sample(nouns, INITIAL_LEXICON_SIZE)
+    f = open("indef_lexicon.txt", "w")
+    for word in initial_nouns:                    # This loop does 3 things: it makes a wordlist to update the dictionary, it makes a line for each of those words, and it writes that line.
         line = lexicon_template[:]                  # Each line is filled with:
-        line[0] = noun[:]                           # -Wordform
-        line[1] = master_dictionary_1146[noun][1][:]       # -Plural/Singular
+        line[0] = word[:]                           # -Wordform
+        line[1] = dictionary_1146[word][1][:]       # -Plural/Singular
         line[2] = "0"                               # -Generation Number
         for i in range(3,len(lexicon_template)):    # -All features and 'class'
-            line[i] = master_dictionary_1146[noun][i][:]
+            line[i] = dictionary_1146[word][i][:]
         f.write(",".join(line)+"\n")
     f.close()
     updateDictionary(initial_nouns, "add")
 
-def makeExperimentSet():                                  # The result of these classification is not fed back into the lexicon as the original study was synchronic: i.e the different age groups consisted of different participants.
-    """Makes a (very) small test set that is used to measure the accuracy in every generation; this simulates the materials used in the experiment by Blom et al. 2008."""
-    f = open("stimuli.txt", "r")
-    stimuli_list = f.readlines()
-    f.close()
-    g = open("experiment.test", "w")
-    for stimulus in stimuli_list:
-        stimulus = stimulus[:-1]
-        line = [stimulus, dictionary_1146[stimulus][1], "Experiment"] + dictionary_1146[stimulus][3:]
-        g.write(",".join(line)+"\n")
-    g.close()
-
 def getPreviousProduction():
-    """Converts output from TiMBL classification to a structure that can be added to the lexicon"""
-    f = open("production.test.out", "r")
+    """Gets previous generation's production from 2 sources: the output file of the TiMBL classification of indef nouns that also have definite representation(s), and the file with nouns that only have an indefinite exemplar."""
+    f = open("indef_production.test.out", "r")
     output_list = f.readlines()
     f.close()
+    g = open("excl_indef_production.txt", "r")
+    excl_output_list = g.readlines()
+    g.close()
     production_list = []
     word_list = []
-    for i in output_list:
-        i = i[:-1].split(",")
-        i.pop(-2)
-        production_list.append(i)
-        word_list.append(i[0][:])
+    for line in output_list:
+        llist = line[:-1].split(",")
+        llist.pop(-1)
+        noun = llist[0][:]
+        for dictionary in both_dictionaries:
+            if noun in dictionary:
+                llist[-1] = dictionary[noun][-1][:]
+                break
+        production_list.append(llist)
+        word_list.append(noun)
+    for line2 in excl_output_list:
+        llist2 = line2[:-1].split(",")
+        llist2.pop(-1)
+        production_list.append(llist2)
+        word_list.append(llist2[0][:])
     updateDictionary(word_list, "add")
     return production_list
 
 def getPreviousLexicon():
-    """Converts previous lexicon.train file to a more useful structure"""
-    f = open("lexicon.train", "r")
+    """Converts previous indef_lexicon.txt file to a more useful structure"""
+    f = open("indef_lexicon.txt", "r")
     prev_lexicon_list = f.readlines()
     f.close()
     prev_lexicon = []
@@ -270,7 +269,7 @@ def getNewInput():
     new_word_list = unkown_word_list + known_word_list
     updateDictionary(new_word_list, "add")
     new_input_list = []
-    f = open("noun_input.txt", "w")
+    f = open("indef_noun_input.txt", "w")
     for word in new_word_list:
         dic_value = dictionary_remaining.get(word)
         if dic_value == None:
@@ -313,140 +312,43 @@ def makeNewLexicon():
     """Combines previous_production, previous_lexicon, and new_input into a new lexicon training file for TiMBL."""
     temp_lexicon = previous_lexicon + previous_production + new_input
     new_lexicon = forgetOldTokens(temp_lexicon)
-    f = open("lexicon.train", "w")      # Opens and empties the previous "lexicon.train" file.
+    f = open("indef_lexicon.txt", "w")      # Opens and empties the previous "indef_lexicon.txt" file.
     for line in new_lexicon:
         f.write(",".join(line))
         f.write("\n")
     f.close()
 
-def makeNewProduction():
-    """Chooses a new list of produced forms based on SUBTLEX frequencies, and constructs a test file out of that list for classification by TiMBL."""
+def makeNewDefProduction():
+    """Chooses a new list of produced forms based on SUBTLEX frequencies, and constructs a text file out of that list that is added to the TiMBL test file by makeLexicon.py."""
     output_list = getKnownWords(OUTPUT_SIZE_DEF)
-    def_from_def = []
+    f = open("def_production_from_indef.txt", "w")
     for token in output_list:
         dic_value = dictionary_remaining.get(token)
         if dic_value == None:
             dic_value = dictionary_1146.get(token)
         line_list = [token[:], dic_value[1], str(GENERATION+1)] + dic_value[3:]
-        def_from_def.append(line_list)
-
-    f = open("def_production_from_indef.txt", "r")
-    ls = f.readlines()
+        f.write(",".join(line_list)+"\n")
     f.close()
-    def_from_indef = [l[:-1].split(",") for l in ls]
-
-    prod_list = def_from_def + def_from_indef
-    g = open("production.test", "w")
-    for ll in prod_list:
-        g.write(",".join(ll)+"\n")
-    g.close()
 
 def makeNewIndefProduction():
-    """Chooses a number of nouns from the definite noun lexicon, that will be produced indefinitely. It also checks if any of the indefinite noun production from the indefinite noun lexicon contains nouns that are also in the definite noun lexicon. Finally it creates a single test file for TiMBL classification that contains both groups of nouns."""
     output_list = getKnownWords(OUTPUT_SIZE_INDEF)
-    indef_from_def = []
+    f = open("indef_production_from_indef.txt", "w")
     for token in output_list:
         dic_value = dictionary_remaining.get(token)
         if dic_value == None:
             dic_value = dictionary_1146.get(token)
         line_list = [token[:], dic_value[1], str(GENERATION+1)] + dic_value[3:]
-        indef_from_def.append(line_list)
-
-    f = open("indef_production_from_indef.txt", "r")
-    ls = f.readlines()
+        f.write(",".join(line_list)+"\n")
     f.close()
-    lls = [l[:-1].split(",") for l in ls]
-    indef_from_indef = []
-    g = open("indef_production_from_indef.txt", "w")        # this will overwrite the old indef-from-indef file with the indef nouns that are exclusively in the indef lexicon
-    for ll in lls:
-        noun = ll[0][:]
-        if noun in dictionary_remaining:
-            n_occurrences = dictionary_remaining[noun][0]
-        elif noun in dictionary_1146:
-            n_occurrences = dictionary_1146[noun][0]
-        if n_occurrences > 0:
-            indef_from_indef.append(ll)
-        elif n_occurrences == 0:
-            ll.append("=")
-            g.write(",".join(ll)+"\n")
-    g.close()
-    os.rename("indef_production_from_indef.txt", "excl_indef_production.txt")
-
-    test_nouns = indef_from_def + indef_from_indef
-    h = open("indef_production.test", "w")
-    for i in test_nouns:
-        h.write(",".join(i)+"\n")
-    h.close()
-
-def getPreviousResults():
-    h = open("experiment.test.out", "r")
-    result_lines = h.readlines()
-    h.close()
-    N_total = 0
-    N_het_de = 0
-    N_de_het = 0
-    N_correct = 0
-    for line in result_lines:
-        line = line[:-1]
-        line_list = line.split(",")
-        answer = line_list[-2]
-        result = line_list[-1]
-        if answer == "de":
-            if result == "het":
-                N_het_de += 1
-            elif result == "de":
-                N_correct += 1
-        elif answer == "het":
-            if result == "de":
-                N_de_het += 1
-            elif result == "het":
-                N_correct += 1
-        N_total += 1
-    prev_results = [N_het_de, N_de_het, N_correct, N_total]
-    return prev_results
-
-def processExperimentResults():
-    """Loads the outputfile of the previous generation's test set, matches the classification to the correct articles, calculates percentages for types of errors and accuracy, and writes those to a datastructure."""
-    previous_results = getPreviousResults()
-    if PARTICIPANT == 1 and GENERATION == 2:
-        results_dict = {PARTICIPANT:{GENERATION-1:previous_results}}
-        f = open("results.pck", "wb")
-        pickle.dump(results_dict, f)
-        f.close()
-    else:
-        g = open("results.pck", "rb")
-        results_dict = pickle.load(g)
-        g.close()
-        if (GENERATION-1)==1:
-            results_dict[PARTICIPANT] = {GENERATION-1:previous_results}
-        else:
-            results_dict[PARTICIPANT][GENERATION-1] = previous_results
-        h = open("results.pck", "wb")
-        pickle.dump(results_dict, h)
-        h.close()
-    return results_dict
 
 def saveUpdatedDictionary():
     """Saves the updated dictionary to disk."""
-    g = open("dic_list.pck", "wb")
+    g = open("dic_list_indef.pck", "wb")
     pickle.dump(both_dictionaries, g)
     g.close()
     h = open("master_dic_list.pck", "wb")
     pickle.dump(master_dictionaries, h)
     h.close()
-
-def provideExperimentSummary():
-    """Takes individual results and provides a per generation overview of mistakes and accuracy across all simulated participants."""
-    f = open("test_run_nouns_k1_w0_mO_n1_g1460_in400_out100_mem5.csv", "w")
-    f.write("Participant,Generation,perc_het_instead_of_de,perc_de_instead_of_het,Accuracy\n")
-    for participant in range(1,MAX_PARTICIPANT+1):
-        for generation in range(1, MAX_GENERATION+1):
-            perc_het_instead_of_de = results[participant][generation][0] / (results[participant][generation][3] / 2) * 100
-            perc_de_instead_of_het = results[participant][generation][1] / (results[participant][generation][3] / 2) * 100
-            accuracy = results[participant][generation][2] / results[participant][generation][3] * 100
-            result_line = [str(participant), str(generation), str(perc_het_instead_of_de), str(perc_de_instead_of_het), str(accuracy)]
-            f.write(",".join(result_line)+"\n")
-    f.close()
 
 ################
 # Main Program #
@@ -460,22 +362,16 @@ master_dictionary_remaining = master_dictionaries[1]
 
 if GENERATION == 0:
     initializeLexicon()
-    if PARTICIPANT == 1:
-        makeExperimentSet()
 
 elif GENERATION > 0 and GENERATION <= MAX_GENERATION:
-    previous_production = getPreviousProduction()
+    if GENERATION == 1:
+        previous_production = []
+    elif GENERATION != 1:
+        previous_production = getPreviousProduction()
     previous_lexicon = getPreviousLexicon()
     new_input = getNewInput()
     makeNewLexicon()
-    makeNewProduction()
+    makeNewDefProduction()
     makeNewIndefProduction()
-    if GENERATION > 1:
-        results = processExperimentResults()
-
-elif GENERATION > MAX_GENERATION:
-    results = processExperimentResults()
-    if PARTICIPANT == MAX_PARTICIPANT:
-        provideExperimentSummary()
 
 saveUpdatedDictionary()

@@ -123,12 +123,8 @@ def updateDictionary(list_of_words, add_or_subtract):
                 elif add_or_subtract == "subtract":
                     dictionary[word][0] -= 1
 
-def getArticleAndEnding(adjective, noun, noun_plural, noun_classification):
-    article_types = ["def", "indef"]
-    probabilities = [0.5, 0.5]
-    article_type = choice(article_types, 1, replace=True, p=probabilities)
-
-    if article_type == "indef":
+def getArticleAndEnding(definiteness, adjective, noun, noun_plural, noun_classification):
+    if definiteness == "indef":
         if noun_plural == "N":
             article = "een"
         elif noun_plural == "Y":
@@ -137,7 +133,7 @@ def getArticleAndEnding(adjective, noun, noun_plural, noun_classification):
             ending = "schwa"
         elif noun_classification == "het":
             ending = "0"
-    elif article_type == "def":
+    elif definiteness == "def":
         article = noun_classification[:]
         ending = "schwa"
 
@@ -157,8 +153,7 @@ def initializeLexicon():
     f = open("lexicon.train", "r")
     lines = f.readlines()
     f.close()
-
-    correct_lines = random.sample(lines, int(INITIAL_LEXICON_SIZE / 2))
+    correct_lines = random.sample(lines, int(INITIAL_LEXICON_SIZE / 4))
     correct_nouns = []
     for line in correct_lines:
         line_list = line[:-1].split(",")
@@ -168,13 +163,22 @@ def initializeLexicon():
     g = open("production.test.out", "r")
     lines2 = g.readlines()
     g.close()
-
-    output_lines = random.sample(lines2, int(INITIAL_LEXICON_SIZE / 2))
+    output_lines = random.sample(lines2, int(INITIAL_LEXICON_SIZE / 4))
     output_nouns = []
     for line2 in output_lines:
         line_list2 = line2[:-1].split(",")
         new_list2 = [line_list2[0], line_list2[1], line_list2[-1]]
         output_nouns.append(new_list2)
+
+    i = open("indef_lexicon.txt", "r")
+    lines3 = i.readlines()
+    i.close()
+    indef_lines = random.sample(lines3, int(INITIAL_LEXICON_SIZE / 2))
+    indef_nouns = []
+    for line3 in indef_lines:
+        line_list3 = line3[:-1].split(",")
+        new_list3 = [line_list3[0], line_list3[1], line_list3[-1]]
+        indef_nouns.append(new_list3)
 
     adjectives = list(first_195.keys())
     initial_adjectives = random.sample(adjectives, INITIAL_LEXICON_SIZE)
@@ -184,10 +188,19 @@ def initializeLexicon():
     for adj in initial_adjectives:
         if len(correct_nouns) > 0:
             noun = correct_nouns.pop()
-        else:
+            def_indef = "def"
+        elif len(correct_nouns) == 0 and len(output_nouns) > 0:
             noun = output_nouns.pop()
-        article, classification, adjective_phon = getArticleAndEnding(adj, noun[0], noun[1], noun[2])
-        lexicon_line = [adj] + [str(GENERATION)] + [article] + adjective_phon + [noun[0], noun[2]] + [classification]
+            def_indef = "def"
+        else:
+            noun = indef_nouns.pop()
+            def_indef = "indef"
+
+        article, classification, adjective_phon = getArticleAndEnding(def_indef, adj, noun[0], noun[1], noun[2])
+        if def_indef == "indef":
+            lexicon_line = [adj] + [str(GENERATION)] + [article] + adjective_phon + [noun[0], "="] + [classification]
+        elif def_indef == "def":
+            lexicon_line = [adj] + [str(GENERATION)] + [article] + adjective_phon + [noun[0], noun[2]] + [classification]
         h.write(",".join(lexicon_line)+"\n")
     updateDictionary(initial_adjectives, "add")
     h.close()
@@ -295,17 +308,30 @@ def getNewInput():
     updateDictionary(new_word_list, "add")
 
     f = open("noun_input.txt", "r")
-    noun_lines = f.readlines()
+    def_noun_lines = f.readlines()
     f.close()
+    def_noun_lists = [def_noun_line[:-1].split(",") for def_noun_line in def_noun_lines]
+    def_noun_triplets = [[def_choice[0], def_choice[1], def_choice[-1]] for def_choice in random.sample(def_noun_lists, int((KNOWN_INPUT_SIZE+NEW_UNKNOWN_INPUT)/2))]
 
-    noun_lists = [noun_line[:-1].split(",") for noun_line in noun_lines]
-    noun_triplets = [[choice[0], choice[1], choice[-1]] for choice in random.sample(noun_lists, KNOWN_INPUT_SIZE+NEW_UNKNOWN_INPUT)]
+    g = open("indef_noun_input.txt", "r")
+    indef_noun_lines = g.readlines()
+    g.close()
+    indef_noun_lists = [indef_noun_line[:-1].split(",") for indef_noun_line in indef_noun_lines]
+    indef_noun_triplets = [[indef_choice[0], indef_choice[1], indef_choice[-1]] for indef_choice in random.sample(indef_noun_lists, int((KNOWN_INPUT_SIZE+NEW_UNKNOWN_INPUT)/2))]
 
     new_input_list = []
     for word in new_word_list:
-        noun_triplet = noun_triplets.pop()
-        article, classification, adjective_phon = getArticleAndEnding(word, noun_triplet[0], noun_triplet[1], noun_triplet[2])
-        line_list = [word, str(GENERATION), article] + adjective_phon + [noun_triplet[0], noun_triplet[2]] + [classification]
+        if len(def_noun_triplets) != 0:
+            noun_triplet = def_noun_triplets.pop()
+            def_indef = "def"
+        elif len(def_noun_triplets) == 0:
+            noun_triplet = indef_noun_triplets.pop()
+            def_indef = "indef"
+        article, classification, adjective_phon = getArticleAndEnding(def_indef, word, noun_triplet[0], noun_triplet[1], noun_triplet[2])
+        if def_indef == "def":
+            line_list = [word, str(GENERATION), article] + adjective_phon + [noun_triplet[0], noun_triplet[2]] + [classification]
+        elif def_indef == "indef":
+            line_list = [word, str(GENERATION), article] + adjective_phon + [noun_triplet[0], "="] + [classification]
         new_input_list.append(line_list)
     return new_input_list
 
@@ -341,28 +367,46 @@ def makeNewLexicon():
     """Combines previous_production, previous_lexicon, and new_input into a new lexicon training file for TiMBL."""
     temp_lexicon = previous_lexicon + previous_production + new_input
     new_lexicon = forgetOldTokens(temp_lexicon)
-    f = open("adj_lexicon.train", "w")      # Opens and empties the previous "lexicon.train" file.
+    f = open("adj_lexicon.train", "w")      # Opens and empties the previous "adj_lexicon.train" file.
     for line in new_lexicon:
         f.write(",".join(line)+"\n")
     f.close()
 
 def makeNewProduction():
-    """Chooses a new list of produced forms based on CELEX frequencies, and constructs a test file out of that list for classification by TiMBL."""
+    """Chooses a new list of produced forms based on SUBTLEX frequencies, and constructs a test file out of that list for classification by TiMBL."""
     output_list = getKnownWords(OUTPUT_SIZE)
 
     f = open("production.test.out", "r")
-    noun_lines = f.readlines()
+    def_noun_lines = f.readlines()
     f.close()
-    noun_lists = [noun_line[:-1].split(",") for noun_line in noun_lines]
-    noun_triplets = [[noun_choice[0], noun_choice[1], noun_choice[-1]] for noun_choice in random.sample(noun_lists, OUTPUT_SIZE)]
+    def_noun_lists = [def_noun_line[:-1].split(",") for def_noun_line in def_noun_lines]
+    def_noun_triplets = [[def_noun_choice[0], def_noun_choice[1], def_noun_choice[-1]] for def_noun_choice in random.sample(def_noun_lists, int(OUTPUT_SIZE/2))]
 
-    g = open("adj_production.test", "w")
-    for adjective in output_list:
-        noun_triplet = noun_triplets.pop()
-        article, classification, adjective_phon = getArticleAndEnding(adjective, noun_triplet[0], noun_triplet[1], noun_triplet[2])
-        line_list = [adjective, str(GENERATION), article] + adjective_phon + [noun_triplet[0], noun_triplet[2]] + [classification]
-        g.write(",".join(line_list)+"\n")
+    g = open("indef_production.test.out", "r")
+    indef_noun_lines1 = g.readlines()
     g.close()
+    h = open("excl_indef_production.txt")
+    indef_noun_lines2 = h.readlines()
+    h.close()
+    indef_noun_lines = indef_noun_lines1 + indef_noun_lines2
+    indef_noun_lists = [indef_noun_line[:-1].split(",") for indef_noun_line in indef_noun_lines]
+    indef_noun_triplets = [[indef_noun_choice[0], indef_noun_choice[1], indef_noun_choice[-1]] for indef_noun_choice in random.sample(indef_noun_lists, int(OUTPUT_SIZE/2))]
+
+    i = open("adj_production.test", "w")
+    for adjective in output_list:
+        if len(def_noun_triplets) > 0:
+            noun_triplet = def_noun_triplets.pop()
+            def_indef = "def"
+        elif len(def_noun_triplets) == 0:
+            noun_triplet = indef_noun_triplets.pop()
+            def_indef = "indef"
+        if noun_triplet[2] == "=":                                              # this indicates that the noun in question only occurs in the indefinite noun lexicon and thus does not have an abstract "de/het" feature.
+            article, classification, adjective_phon = getArticleAndEnding(def_indef, adjective, noun_triplet[0], noun_triplet[1], "de")             # the classification that comes out of getArticleAndEnding() doesn't actually matter as it gets replaced by the TiMBL classfication it is only added because test and training files need to have the same format.
+        else:
+            article, classification, adjective_phon = getArticleAndEnding(def_indef, adjective, noun_triplet[0], noun_triplet[1], noun_triplet[2])
+        line_list = [adjective, str(GENERATION), article] + adjective_phon + [noun_triplet[0], noun_triplet[2]] + [classification]
+        i.write(",".join(line_list)+"\n")
+    i.close()
 
 def getPreviousResults():
     h = open("adj_experiment.test.out", "r")
@@ -471,12 +515,12 @@ def getExceptionsAccuracy():
     accuracy = num_correct / num_of_items * 100
 
     if PARTICIPANT == 1:
-        g = open("exceptions_results_bugfixed3.csv", "w")
+        g = open("exceptions_results_test.csv", "w")
         g.write("Particpant,Accuracy\n")
         g.write(str(PARTICIPANT)+","+str(accuracy)+"\n")
         g.close()
     elif PARTICIPANT > 1:
-        g = open("exceptions_results_bugfixed3.csv", "a")
+        g = open("exceptions_results_test.csv", "a")
         g.write(str(PARTICIPANT)+","+str(accuracy)+"\n")
         g.close()
 
